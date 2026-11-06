@@ -65,8 +65,20 @@ PRAISE = [
     "super", "genial", "excellent", "top", "parfait", "chapeau", "cool",
     "impressionnant", "bon travail",
 ]
+TODAY = [
+    "aujourd hui", "ce soir", "demain", "match du jour", "matchs du jour",
+    "pronostic du jour", "pronostics du jour",
+]
+EXPLAIN = [
+    "comment tu calcules", "comment tu fais", "comment tu predis",
+    "comment ca se calcule", "comment tu as vu", "comment tu as trouve",
+    "comment as tu trouve", "pourquoi ce resultat", "explique", "methode",
+    "fiable", "tu te bases sur quoi", "sur quoi tu te bases",
+]
 GREET = ["salut", "bonjour", "bonsoir", "coucou", "hello", "hey", "yo", "wesh", "slt", "cc", "hi"]
 HOW = ["ca va", "comment vas tu", "comment tu vas", "comment allez vous", "tu vas bien"]
+WELL = ["je vais bien", "ca va bien", "ca va tres bien", "tout va bien", "ca va super", "je vais tres bien"]
+ASK_BACK = ["et toi", "et vous", "et tu", "toi meme"]
 BYE = ["au revoir", "bye", "a plus", "a plus tard", "ciao", "a demain", "bonne nuit", "bonne soiree"]
 WHO = [
     "qui es tu", "t es qui", "tu es qui", "ton nom", "tu t appelles",
@@ -116,12 +128,46 @@ def small_talk(text: str):
             "je suis chaud ! ⚽",
             "Merci champion ! 😎 Le travail continue : donne-moi un match à analyser.",
         ])
+    if has_any(text, TODAY):
+        return (
+            "Je ne connais pas encore le calendrier des matchs du jour. 😅 "
+            "Dis-moi quel match t'intéresse, par exemple `PSG - Real Madrid`, "
+            "et je te donne mon pronostic !"
+        )
+    if has_any(text, EXPLAIN):
+        return (
+            "Voici comment je fais ⚙️ :\n\n"
+            "1. Je récupère les résultats de la saison en cours.\n"
+            "2. Je calcule la force d'**attaque** et de **défense** de chaque équipe "
+            "(buts marqués et encaissés).\n"
+            "3. J'en déduis les buts attendus pour chaque équipe, puis les chances de "
+            "victoire, de nul et le score le plus probable.\n\n"
+            "Je ne connais pas les blessures ni les suspensions, donc ce sont des "
+            "**probabilités**, pas des certitudes. Écris un match pour essayer ! ⚽"
+        )
+
     greet = has_any(text, GREET)
     how = has_any(text, HOW)
-    if greet or how:
-        start = "Salut ! 👋 " if greet else ""
-        mid = "Je vais très bien, merci ! ⚽ " if how else ""
-        return start + mid + "Écris-moi un match, par exemple `PSG - Real Madrid`."
+    well = has_any(text, WELL)
+    back = has_any(text, ASK_BACK)
+    if greet or how or well or back:
+        parts = []
+        if greet:
+            parts.append("Salut ! 👋")
+        if well:
+            parts.append("Content de l'entendre ! 😄")
+        if back:
+            parts.append(
+                "Moi aussi, ça va super, merci ! ⚽" if well
+                else "Moi, ça va super, merci ! ⚽"
+            )
+        elif how and not well:
+            parts.append("Ça va super, merci, et toi ? ⚽")
+        elif greet and not well:
+            parts.append("Ça va ?")
+        parts.append("Écris-moi un match, par exemple `PSG - Real Madrid`.")
+        return " ".join(parts)
+
     if has_any(text, BYE):
         return random.choice([
             "À bientôt ! 👋 Reviens quand tu veux pour une autre prédiction. ⚽",
@@ -319,6 +365,8 @@ def format_reply(home, away, r, matches, comp):
 
 
 def answer_chat(text: str, selected: str) -> str:
+    text = text.strip()[:500]
+
     # 1) Conversation simple (salut, merci, bravo...)
     if not looks_like_match(text):
         reply = small_talk(text)
@@ -412,7 +460,7 @@ if st.button("Prédire le match", type="primary", use_container_width=True):
 
 st.divider()
 st.subheader("💬 Discute avec le bot")
-st.caption("Dis salut, ou écris un match : PSG - Real Madrid, Auxerre contre Monaco...")
+st.caption("Dis salut, pose une question, ou écris un match : PSG - Real Madrid, Auxerre contre Monaco...")
 
 if "messages" not in st.session_state:
     st.session_state.messages = [

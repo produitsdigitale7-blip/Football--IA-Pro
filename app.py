@@ -1,4 +1,5 @@
 import math
+import random
 import re
 import unicodedata
 
@@ -53,8 +54,27 @@ HELP = (
     "(ou en Ligue des champions)."
 )
 
+# ---------- CONVERSATION ----------
+PROBLEM = [
+    "marche pas", "pas marche", "ne marche pas", "fonctionne pas",
+    "erreur", "bug", "probleme", "bloque", "faux", "mauvais", "pas bon",
+]
+THANKS = ["merci", "thanks", "thank you"]
+PRAISE = [
+    "bravo", "felicitations", "felicitation", "bien joue", "bien fait",
+    "super", "genial", "excellent", "top", "parfait", "chapeau", "cool",
+    "impressionnant", "bon travail",
+]
+GREET = ["salut", "bonjour", "bonsoir", "coucou", "hello", "hey", "yo", "wesh", "slt", "cc", "hi"]
+HOW = ["ca va", "comment vas tu", "comment tu vas", "comment allez vous", "tu vas bien"]
+BYE = ["au revoir", "bye", "a plus", "a plus tard", "ciao", "a demain", "bonne nuit", "bonne soiree"]
+WHO = [
+    "qui es tu", "t es qui", "tu es qui", "ton nom", "tu t appelles",
+    "tu fais quoi", "tu sais faire", "aide", "aide moi", "help",
+    "comment ca marche", "comment utiliser",
+]
 
-# ---------- OUTILS DE TEXTE ----------
+
 def norm(s: str) -> str:
     s = unicodedata.normalize("NFKD", s.lower())
     s = "".join(c for c in s if not unicodedata.combining(c))
@@ -62,6 +82,62 @@ def norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def has_any(text: str, phrases) -> bool:
+    padded = f" {norm(text)} "
+    return any(f" {p} " in padded for p in phrases)
+
+
+def looks_like_match(text: str) -> bool:
+    low = text.lower()
+    if "-" in low or "–" in low:
+        return True
+    padded = f" {norm(text)} "
+    return any(f" {w} " in padded for w in ("vs", "versus", "contre", "face a"))
+
+
+def small_talk(text: str):
+    """Répond aux messages de conversation. Retourne None si rien ne correspond."""
+    if has_any(text, PROBLEM):
+        return random.choice([
+            "Oh, désolé que ça n'ait pas marché ! 😅 Écris les deux équipes comme ceci : "
+            "`PSG - Real Madrid`. Vérifie l'orthographe, et change de compétition en haut "
+            "si besoin. Réessaie, je suis là ! 💪",
+            "Aïe, pardon pour ça ! 🙏 Essaie avec ce format : `Auxerre - Monaco`. "
+            "La première équipe joue à domicile. Dis-moi si ça passe maintenant !",
+        ])
+    if has_any(text, THANKS):
+        return random.choice([
+            "Avec plaisir ! 😊 Envoie-moi un autre match quand tu veux. ⚽",
+            "De rien ! 🙌 Un autre match à analyser ?",
+        ])
+    if has_any(text, PRAISE):
+        return random.choice([
+            "Merci beaucoup, ça me fait plaisir ! 🙏🔥 Envoie-moi un autre match, "
+            "je suis chaud ! ⚽",
+            "Merci champion ! 😎 Le travail continue : donne-moi un match à analyser.",
+        ])
+    greet = has_any(text, GREET)
+    how = has_any(text, HOW)
+    if greet or how:
+        start = "Salut ! 👋 " if greet else ""
+        mid = "Je vais très bien, merci ! ⚽ " if how else ""
+        return start + mid + "Écris-moi un match, par exemple `PSG - Real Madrid`."
+    if has_any(text, BYE):
+        return random.choice([
+            "À bientôt ! 👋 Reviens quand tu veux pour une autre prédiction. ⚽",
+            "Au revoir ! 😊 Bons matchs !",
+        ])
+    if has_any(text, WHO):
+        return (
+            "Je suis le bot de prédictions de **Denis Paco Digital** ⚽. "
+            "J'analyse les buts marqués et encaissés des équipes pour calculer "
+            "le score probable et les chances de victoire.\n\n"
+            "Écris par exemple : `PSG - Real Madrid`."
+        )
+    return None
+
+
+# ---------- OUTILS DE TEXTE ----------
 def strip_generic(n: str) -> str:
     return " ".join(w for w in n.split() if w not in GENERIC)
 
@@ -243,6 +319,13 @@ def format_reply(home, away, r, matches, comp):
 
 
 def answer_chat(text: str, selected: str) -> str:
+    # 1) Conversation simple (salut, merci, bravo...)
+    if not looks_like_match(text):
+        reply = small_talk(text)
+        if reply:
+            return reply
+
+    # 2) Prédiction de match
     order = []
     for c in [selected, "Ligue des champions", *COMPETITIONS]:
         if c not in order:
@@ -329,14 +412,15 @@ if st.button("Prédire le match", type="primary", use_container_width=True):
 
 st.divider()
 st.subheader("💬 Discute avec le bot")
-st.caption("Écris un match, par exemple : PSG - Real Madrid ou Auxerre contre Monaco")
+st.caption("Dis salut, ou écris un match : PSG - Real Madrid, Auxerre contre Monaco...")
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
             "content": (
-                "Salut ! 👋 Écris-moi un match et je te donne ma prédiction. "
+                "Salut ! 👋 Je suis le bot de prédictions de Denis Paco Digital. "
+                "Écris-moi un match et je te donne ma prédiction. "
                 "Exemple : `PSG - Real Madrid`"
             ),
         }
@@ -346,13 +430,13 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-prompt = st.chat_input("Écris un match, ex : PSG - Real Madrid")
+prompt = st.chat_input("Écris un message ou un match, ex : PSG - Real Madrid")
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     with st.chat_message("assistant"):
-        with st.spinner("Analyse en cours..."):
+        with st.spinner("Je réfléchis..."):
             reply = answer_chat(prompt, competition)
         st.markdown(reply)
     st.session_state.messages.append({"role": "assistant", "content": reply})

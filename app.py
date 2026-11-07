@@ -5,97 +5,11 @@ from datetime import datetime, timedelta, timezone
 import requests
 import streamlit as st
 
-from dialogue import looks_like_match, norm, small_talk
-
 API_URL = "https://api.football-data.org/v4"
 
-COMPETITIONS = {
-    "Ligue 1": "FL1",
-    "Premier League": "PL",
-    "La Liga": "PD",
-    "Serie A": "SA",
-    "Bundesliga": "BL1",
-    "Ligue des champions": "CL",
-}
+CODES = ["FL1", "PL", "ELC", "PD", "SA", "BL1", "DED", "PPL", "BSA", "CL"]
 
 MAX_GOALS = 10
-
-GENERIC = {
-    "fc", "ac", "as", "aj", "cf", "sc", "rc", "us", "ssc", "ss", "afc",
-    "sv", "fsv", "vfl", "vfb", "fk", "ud", "cd", "rcd", "ca", "og", "de", "1",
-}
-
-ALIASES = {
-    "psg": "paris saint germain",
-    "om": "marseille",
-    "ol": "lyonnais",
-    "real": "real madrid",
-    "barca": "barcelona",
-    "barcelone": "barcelona",
-    "bayern": "bayern",
-    "city": "manchester city",
-    "man city": "manchester city",
-    "united": "manchester united",
-    "man utd": "manchester united",
-    "spurs": "tottenham",
-    "atletico": "atletico",
-    "inter": "internazionale",
-    "juve": "juventus",
-    "milan": "ac milan",
-}
-
-HELP = (
-    "Je n'ai pas trouvé deux équipes dans ton message. 🤔\n\n"
-    "Écris par exemple :\n"
-    "- `PSG - Real Madrid`\n"
-    "- `Auxerre contre Monaco`\n"
-    "- `Arsenal vs Chelsea`\n\n"
-    "La première équipe écrite joue à domicile. "
-    "Les deux équipes doivent jouer dans la même compétition "
-    "(ou en Ligue des champions)."
-)
-
-
-# ---------- OUTILS DE TEXTE ----------
-def strip_generic(n: str) -> str:
-    return " ".join(w for w in n.split() if w not in GENERIC)
-
-
-def team_keys(name: str, short: str):
-    n = norm(name)
-    s = norm(short)
-    keys = {n, s, strip_generic(n), strip_generic(s)}
-    for alias, target in ALIASES.items():
-        if target in n:
-            keys.add(alias)
-    keys.discard("")
-    return keys
-
-
-def find_teams(text: str, model):
-    """Trouve les équipes citées dans le message, dans l'ordre d'apparition."""
-    padded = f" {norm(text)} "
-    candidates = []
-    for team, keys in model["keys"].items():
-        for k in keys:
-            idx = padded.find(f" {k} ")
-            if idx != -1:
-                candidates.append((len(k), idx + 1, team))
-
-    candidates.sort(reverse=True)
-    accepted = []
-    used_teams = set()
-    for length, start, team in candidates:
-        end = start + length
-        if team in used_teams:
-            continue
-        if any(start < e and s < end for _, s, e in accepted):
-            continue
-        accepted.append((team, start, end))
-        used_teams.add(team)
-
-    accepted.sort(key=lambda x: x[1])
-    return [t for t, _, _ in accepted]
 
 
 # ---------- AFFICHAGE DES LOGOS ----------
@@ -142,7 +56,7 @@ def get_matches(code: str):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_day_matches(day_iso: str):
-    """Récupère les matchs d'un jour donné dans les 6 compétitions."""
+    """Récupère les matchs d'un jour donné dans tous les championnats."""
     headers = {"X-Auth-Token": st.secrets["FOOTBALL_API_KEY"]}
     d0 = datetime.fromisoformat(day_iso).date()
     r = requests.get(
@@ -151,7 +65,7 @@ def get_day_matches(day_iso: str):
         params={
             "dateFrom": day_iso,
             "dateTo": (d0 + timedelta(days=1)).isoformat(),
-            "competitions": ",".join(COMPETITIONS.values()),
+            "competitions": ",".join(CODES),
         },
         timeout=20,
     )
@@ -170,14 +84,8 @@ def build_model(matches):
         if hg is None or ag is None:
             continue
         h, a = m["homeTeam"]["name"], m["awayTeam"]["name"]
-        hs = m["homeTeam"].get("shortName") or h
-        as_ = m["awayTeam"].get("shortName") or a
-        teams.setdefault(
-            h, {"gf": 0, "ga": 0, "n": 0, "short": hs, "crest": m["homeTeam"].get("crest")}
-        )
-        teams.setdefault(
-            a, {"gf": 0, "ga": 0, "n": 0, "short": as_, "crest": m["awayTeam"].get("crest")}
-        )
+        teams.setdefault(h, {"gf": 0, "ga": 0, "n": 0})
+        teams.setdefault(a, {"gf": 0, "ga": 0, "n": 0})
         teams[h]["gf"] += hg
         teams[h]["ga"] += ag
         teams[h]["n"] += 1
@@ -196,22 +104,12 @@ def build_model(matches):
     avg_team = (avg_home + avg_away) / 2
 
     strengths = {}
-    keys = {}
-    crests = {}
     for t, s in teams.items():
         strengths[t] = {
             "attack": (s["gf"] / s["n"]) / avg_team,
             "defense": (s["ga"] / s["n"]) / avg_team,
         }
-        keys[t] = team_keys(t, s["short"])
-        crests[t] = s.get("crest")
-    return {
-        "strengths": strengths,
-        "avg_home": avg_home,
-        "avg_away": avg_away,
-        "keys": keys,
-        "crests": crests,
-    }
+    return {"strengths": strengths, "avg_home": avg_home, "avg_away": avg_away}
 
 
 def poisson(k: int, lam: float) -> float:
@@ -300,12 +198,8 @@ def show_prediction(model, matches, home, away):
     st.write(f"**Forme de {away}** (5 derniers) : {recent_form(matches, away)}")
 
 
-# ---------- LISTE DES MATCHS DU JOUR ----------
+# ---------- LISTE DES MATCHS ----------
 def render_day_matches(day_matches):
-    if not day_matches:
-        st.info("Aucun match dans ces compétitions ce jour-là.")
-        return
-
     by_comp = {}
     for m in sorted(day_matches, key=lambda x: x["utcDate"]):
         by_comp.setdefault(m["competition"]["name"], []).append(m)
@@ -338,7 +232,17 @@ def render_day_matches(day_matches):
                 if status in ("FINISHED", "POSTPONED", "SUSPENDED", "CANCELLED"):
                     continue
 
-                with st.expander("🔮 Voir la prédiction"):
+                mid = m["id"]
+                opened = mid in st.session_state.opened
+                label = "🔼 Masquer la prédiction" if opened else "🔮 Voir la prédiction"
+                if st.button(label, key=f"btn_{mid}", use_container_width=True):
+                    if opened:
+                        st.session_state.opened.discard(mid)
+                    else:
+                        st.session_state.opened.add(mid)
+                    st.rerun()
+
+                if opened:
                     try:
                         comp_matches = get_matches(code)
                         comp_model = build_model(comp_matches)
@@ -355,69 +259,15 @@ def render_day_matches(day_matches):
                     show_prediction(comp_model, comp_matches, hn, an)
 
 
-# ---------- CHAT ----------
-def format_reply(home, away, r, matches, comp, crests):
-    header = crest_row(home, crests.get(home), away, crests.get(away), "VS")
-    return (
-        f"{header}"
-        f"**{home} vs {away}** ({comp})\n\n"
-        f"🎯 Score le plus probable : **{r['score'][0]} - {r['score'][1]}**\n\n"
-        f"- Victoire {home} : **{r['win_home']:.0%}**\n"
-        f"- Match nul : **{r['draw']:.0%}**\n"
-        f"- Victoire {away} : **{r['win_away']:.0%}**\n\n"
-        f"- Plus de 2,5 buts : **{r['over25']:.0%}**\n"
-        f"- Les 2 équipes marquent : **{r['btts']:.0%}**\n\n"
-        f"Buts attendus : {home} {r['lam_home']:.2f} — {away} {r['lam_away']:.2f}\n\n"
-        f"Forme de {home} : {recent_form(matches, home)}\n\n"
-        f"Forme de {away} : {recent_form(matches, away)}\n\n"
-        "_Probabilités statistiques, pas des certitudes._"
-    )
-
-
-def answer_chat(text: str, selected: str) -> str:
-    text = text.strip()[:500]
-
-    # 1) Conversation simple (salut, merci, bravo...)
-    if not looks_like_match(text):
-        reply = small_talk(text)
-        if reply:
-            return reply
-
-    # 2) Prédiction de match
-    order = []
-    for c in [selected, "Ligue des champions", *COMPETITIONS]:
-        if c not in order:
-            order.append(c)
-
-    errors = 0
-    for comp in order:
-        try:
-            matches = get_matches(COMPETITIONS[comp])
-            model = build_model(matches)
-        except Exception:
-            errors += 1
-            continue
-        if model is None:
-            continue
-        teams = find_teams(text, model)
-        if len(teams) >= 2:
-            home, away = teams[0], teams[1]
-            r = predict(model, home, away)
-            return format_reply(home, away, r, matches, comp, model["crests"])
-
-    if errors == len(order):
-        return "Impossible de récupérer les données pour le moment. Réessaie dans une minute."
-    return HELP
-
-
 # ---------- INTERFACE ----------
 st.set_page_config(page_title="Prédictions Foot", page_icon="⚽", layout="centered")
+
+if "opened" not in st.session_state:
+    st.session_state.opened = set()
 
 st.title("⚽ Prédictions de matchs")
 st.caption("Denis Paco Digital — analyse statistique des matchs de football")
 
-# ----- Matchs du jour -----
-st.subheader("📅 Les matchs")
 day_choice = st.radio(
     "Jour",
     ["Aujourd'hui", "Demain", "Après-demain"],
@@ -436,82 +286,18 @@ except Exception as e:
     st.warning(f"Impossible de charger les matchs pour le moment. Détail : {e}")
 
 if day_matches is not None:
-    render_day_matches(day_matches)
-
-# ----- Prédire un match au choix -----
-st.divider()
-st.subheader("🎯 Prédire un autre match")
-
-competition = st.selectbox("Compétition", list(COMPETITIONS.keys()))
-
-try:
-    with st.spinner("Chargement des données..."):
-        matches = get_matches(COMPETITIONS[competition])
-        model = build_model(matches)
-except Exception as e:
-    st.error(
-        "Impossible de récupérer les données. Vérifie ta clé API "
-        f"(FOOTBALL_API_KEY). Détail : {e}"
-    )
-    st.stop()
-
-if model is None:
-    st.warning("Pas encore assez de matchs joués pour cette compétition.")
-    st.stop()
-
-team_names = sorted(model["strengths"].keys())
-
-col1, col2 = st.columns(2)
-home = col1.selectbox("🏠 Équipe à domicile", team_names, index=0)
-away = col2.selectbox("✈️ Équipe à l'extérieur", team_names, index=min(1, len(team_names) - 1))
-
-if st.button("Prédire le match", type="primary", use_container_width=True):
-    if home == away:
-        st.warning("Choisis deux équipes différentes.")
+    if not day_matches:
+        st.info("Aucun match ce jour-là dans ces championnats. Essaie un autre jour.")
     else:
-        st.markdown(
-            crest_row(
-                home, model["crests"].get(home), away, model["crests"].get(away), "VS"
-            ),
-            unsafe_allow_html=True,
-        )
-        show_prediction(model, matches, home, away)
-
-# ----- Chat -----
-st.divider()
-st.subheader("💬 Discute avec le bot")
-st.caption("Dis salut, pose une question, ou écris un match : PSG - Real Madrid, Auxerre contre Monaco...")
-
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {
-            "role": "assistant",
-            "content": (
-                "Salut ! 👋 Je suis le bot de prédictions de Denis Paco Digital. "
-                "Écris-moi un match et je te donne ma prédiction. "
-                "Exemple : `PSG - Real Madrid`"
-            ),
-        }
-    ]
-
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"], unsafe_allow_html=(msg["role"] == "assistant"))
-
-prompt = st.chat_input("Écris un message ou un match, ex : PSG - Real Madrid")
-if prompt:
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-    with st.chat_message("assistant"):
-        with st.spinner("Je réfléchis..."):
-            reply = answer_chat(prompt, competition)
-        st.markdown(reply, unsafe_allow_html=True)
-    st.session_state.messages.append({"role": "assistant", "content": reply})
+        names = sorted({m["competition"]["name"] for m in day_matches})
+        pick = st.selectbox("Championnat", ["Tous les championnats", *names])
+        if pick != "Tous les championnats":
+            day_matches = [m for m in day_matches if m["competition"]["name"] == pick]
+        render_day_matches(day_matches)
 
 st.divider()
 st.caption(
     "⚠️ Ces prédictions sont des probabilités statistiques, pas des certitudes. "
     "Elles ne tiennent pas compte des blessures ni des suspensions. "
     "Ne mise jamais d'argent que tu ne peux pas te permettre de perdre."
-)
+        )

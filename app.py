@@ -121,35 +121,36 @@ def predict(model, home: str, away: str):
     lam_home = s[home]["attack"] * s[away]["defense"] * model["avg_home"]
     lam_away = s[away]["attack"] * s[home]["defense"] * model["avg_away"]
 
-    win_home = draw = win_away = over25 = btts = 0.0
-    best_score, best_prob = (0, 0), 0.0
-
+    # Probabilité de chaque score exact
+    grid = {}
+    total = 0.0
     for i in range(MAX_GOALS + 1):
         for j in range(MAX_GOALS + 1):
             p = poisson(i, lam_home) * poisson(j, lam_away)
-            if i > j:
-                win_home += p
-            elif i == j:
-                draw += p
-            else:
-                win_away += p
-            if i + j > 2:
-                over25 += p
-            if i > 0 and j > 0:
-                btts += p
-            if p > best_prob:
-                best_prob, best_score = p, (i, j)
+            grid[(i, j)] = p
+            total += p
+    for k in grid:
+        grid[k] /= total
 
-    total = win_home + draw + win_away
+    def prob(cond):
+        return sum(p for (i, j), p in grid.items() if cond(i, j))
+
+    top3 = sorted(grid.items(), key=lambda kv: kv[1], reverse=True)[:3]
+
     return {
         "lam_home": lam_home,
         "lam_away": lam_away,
-        "win_home": win_home / total,
-        "draw": draw / total,
-        "win_away": win_away / total,
-        "over25": over25 / total,
-        "btts": btts / total,
-        "score": best_score,
+        "win_home": prob(lambda i, j: i > j),
+        "draw": prob(lambda i, j: i == j),
+        "win_away": prob(lambda i, j: i < j),
+        "over15": prob(lambda i, j: i + j > 1),
+        "over25": prob(lambda i, j: i + j > 2),
+        "btts": prob(lambda i, j: i > 0 and j > 0),
+        "only_one": prob(lambda i, j: (i > 0) != (j > 0)),
+        "nil_nil": prob(lambda i, j: i == 0 and j == 0),
+        "home_blank": prob(lambda i, j: i == 0),
+        "away_blank": prob(lambda i, j: j == 0),
+        "top3": top3,
     }
 
 
@@ -172,23 +173,43 @@ def recent_form(matches, team: str, n: int = 5):
 
 
 # ---------- AFFICHAGE D'UNE PRÉDICTION ----------
+def bar(label: str, p: float):
+    st.progress(min(max(p, 0.0), 1.0), text=label)
+
+
 def show_prediction(model, matches, home, away):
     r = predict(model, home, away)
 
-    st.metric("Score le plus probable", f"{r['score'][0]} - {r['score'][1]}")
+    st.markdown("**🎯 Les 3 scores exacts les plus probables**")
+    for medal, ((i, j), p) in zip(["🥇", "🥈", "🥉"], r["top3"]):
+        st.markdown(f"{medal} **{home} {i} - {j} {away}** : {p:.1%}")
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric(f"Victoire {home}", f"{r['win_home']:.0%}")
-    c2.metric("Match nul", f"{r['draw']:.0%}")
-    c3.metric(f"Victoire {away}", f"{r['win_away']:.0%}")
+    st.markdown("**📊 Résultat du match**")
+    bar(f"Victoire {home} : {r['win_home']:.0%}", r["win_home"])
+    bar(f"Match nul : {r['draw']:.0%}", r["draw"])
+    bar(f"Victoire {away} : {r['win_away']:.0%}", r["win_away"])
 
-    st.progress(r["win_home"], text=f"{home} : {r['win_home']:.0%}")
-    st.progress(r["draw"], text=f"Nul : {r['draw']:.0%}")
-    st.progress(r["win_away"], text=f"{away} : {r['win_away']:.0%}")
+    st.markdown("**⚽ Les buts**")
+    bar(
+        f"Plus de 1,5 buts : {r['over15']:.0%} (moins : {1 - r['over15']:.0%})",
+        r["over15"],
+    )
+    bar(
+        f"Plus de 2,5 buts : {r['over25']:.0%} (moins : {1 - r['over25']:.0%})",
+        r["over25"],
+    )
 
-    c4, c5 = st.columns(2)
-    c4.metric("Plus de 2,5 buts", f"{r['over25']:.0%}")
-    c5.metric("Les 2 équipes marquent", f"{r['btts']:.0%}")
+    st.markdown("**🥅 Qui marque ?**")
+    bar(
+        f"Les 2 équipes marquent : {r['btts']:.0%} (non : {1 - r['btts']:.0%})",
+        r["btts"],
+    )
+    bar(f"Une seule équipe marque : {r['only_one']:.0%}", r["only_one"])
+    bar(f"Aucun but (0-0) : {r['nil_nil']:.0%}", r["nil_nil"])
+
+    st.markdown("**🚫 Ne pas marquer**")
+    bar(f"{home} ne marque pas : {r['home_blank']:.0%}", r["home_blank"])
+    bar(f"{away} ne marque pas : {r['away_blank']:.0%}", r["away_blank"])
 
     st.write(
         f"**Buts attendus** : {home} {r['lam_home']:.2f} — "
@@ -260,7 +281,11 @@ def render_day_matches(day_matches):
 
 
 # ---------- INTERFACE ----------
-st.set_page_config(page_title="Prédictions Foot", page_icon="⚽", layout="centered")
+st.set_page_config(
+    page_title="Pronostics Foot — Denis Paco Digital",
+    page_icon="⚽",
+    layout="centered",
+)
 
 if "opened" not in st.session_state:
     st.session_state.opened = set()

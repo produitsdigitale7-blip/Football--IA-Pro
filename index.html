@@ -1,1 +1,43 @@
-<a href="https://produitsdigitale7-blip-football--ia-pro-app-npwsdc.streamlit.app/">Ouvrir les pronostics ⚽</a>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>⚽ Pronostics Foot — Denis Paco Digital</title>
+<meta name="description" content="Score probable, % de victoire et logos des clubs. Gratuit.">
+<meta name="theme-color" content="#06241b">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pronostics">
+<meta property="og:type" content="website">
+<meta property="og:title" content="⚽ Pronostics Foot — Denis Paco Digital">
+<meta property="og:description" content="Score probable, % de victoire et logos des clubs. Gratuit.">
+<meta property="og:image" content="https://produitsdigitale7-blip.github.io/Football--IA-Pro/logo.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+html,body{margin:0;height:100%;background:#06241b;overflow:hidden}
+#splash{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#fff;font-family:Arial,sans-serif;text-align:center;padding:24px}
+#splash img{width:96px;height:96px;border-radius:22px}
+#splash a{color:#f5c542}
+iframe{position:fixed;inset:0;width:100%;height:100%;border:0;background:transparent}
+</style>
+</head>
+<body>
+<div id="splash">
+<img src="icon-192.png" alt="">
+<div>Chargement des pronostics…</div>
+<a href="https://produitsdigitale7-blip-football--ia-pro-app-npwsdc.streamlit.app/">Ouvrir le site directement</a>
+</div>
+<iframe src="https://produitsdigitale7-blip-football--ia-pro-app-npwsdc.streamlit.app/?embed=true" title="Pronostics Foot"></iframe>
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(function () {});
+}
+</script>
+</body>
+  </html>
